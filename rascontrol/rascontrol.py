@@ -36,7 +36,7 @@ class RCException(Exception):
     pass
 
 class RASOpen(RCException):
-    """ 
+    """
     rascontrol won't currently run if RAS is already open and raise RASOpen if
     it is.  I'm not sure why I did this. In HydrologyManager I blocked HM from
     starting if excel was already running to prevent accidently closing all
@@ -152,9 +152,9 @@ class Node(object):
         self.rc = self.river.rc   # RasController object
 
     def value(self, profile, value_type):
-        """ 
+        """
         Returns HEC-RAS node output value (WSEL, MIN_CH_EL, etc) for profile
-        
+
         :param profile: Profile object for desired profile
         :param value_type: desired output value, these are defined at the top of this file
         """
@@ -172,7 +172,7 @@ class Node(object):
 
 class RasController(object):
     """
-    Opens, runs, and retrieves information from HEC-RAS. Checks if RAS is open during __init__(). If open, raises 
+    Opens, runs, and retrieves information from HEC-RAS. Checks if RAS is open during __init__(). If open, raises
     RASOpen.
 
     Primary methods -
@@ -192,7 +192,7 @@ class RasController(object):
         get_profiles(self): Returns list of all profiles as Profile objects
 
         get_rivers(self): Returns list of all rivers as River objects
- 
+
         get_xs(self, xs_id, river=None, reach=None): return cross section Node object
 
         is_output_current(self, plan, show=False): Returns True if output is up to date for plan (Plan object)
@@ -232,7 +232,7 @@ class RasController(object):
         self.com_rc = win32com.client.DispatchEx('RAS' + version + '.HECRASController')
         self._plan_lock = False  # get_profiles() seems to lock the current plan in place. Not sure why
 
-    def simple_xs_list(self): 
+    def simple_xs_list(self):
         """
         Returns list of XS as SimpleXS objects, all names are strip()ed
 
@@ -250,7 +250,7 @@ class RasController(object):
             simple_list.append(temp)
         return simple_list
 
-    
+
     def get_xs(self, xs_id, river=None, reach=None):
         """
         Returns XS requested, ignores river and reach if not specified
@@ -287,7 +287,7 @@ class RasController(object):
                 if xs.node_id.strip() == xs_id and xs.river.name.strip() == river and xs.reach.name.strip() == reach:
                     return xs
         raise CrossSectionNotFound('Cross section ' + str(xs_id) + ' not found')
-        
+
 
     def open_project(self, project):
         """
@@ -318,7 +318,7 @@ class RasController(object):
         :return: string
         """
         pass
- 
+
     # TODO - Add plan filename to plan objects
     def get_plans(self, basedir=None):
         """
@@ -360,7 +360,7 @@ class RasController(object):
             status, _, messages, _ = self.com_rc.Compute_CurrentPlan(None, None)
         return status, messages
 
-    
+
     def get_profiles(self):
         """
         Returns list of all profiles as Profile objects
@@ -389,7 +389,7 @@ class RasController(object):
             rivers.append(new_prof)
         return rivers
 
-    #----------------------   
+    #----------------------
     # There was a note from before that is_output_current() wasn't working
     # It appears to be working now (3/30/17 MJB)
     #----------------------
@@ -402,12 +402,12 @@ class RasController(object):
         """
         result, plan_name, unknown_bool, message = self.com_rc.PlanOutput_IsCurrent(plan.name, show, None)
         if DEBUG:
-            print '>>> In is_output_current'
-            print '>>>', (result, unknown_bool, message)
+            print('>>> In is_output_current')
+            print('>>>', (result, unknown_bool, message))
         return result, message
 
     def _load_xs_list(self):
-        """ 
+        """
         Returns list of all cross sections (Node objects)
         """
         xs_list = []
@@ -480,148 +480,148 @@ class RasController(object):
         return node_ids, node_types
 
 
-def main_old():
-    rc = RasController(version='503')
-    #rc = RasController(version='41')
-    # rc.open_project('x:/python/rascontrol/rascontrol/models/HG.prj')
-    # rc.open_project("c:/Users/mike.bannister/Downloads/ras5/HEC-RAS_5.0_Beta_2015-08-21/RAS_50 Test Data/BaldEagleCrkMulti2D/BaldEagleDamBrk.prj")
-    rc.open_project("x:/python/rascontrol/rascontrol/models/GHC.prj")
-
-    plans = rc.get_plans()
-    print '***************Plans', plans  # returns plan names
-    fname, name = rc.com_rc.Plan_GetFilename(plans[0].name)
-    print fname, name
-    x = rc.com_rc.Plan_GetFilename(plans[1].name)
-    print x
-    # rc.show()
-    time.sleep(2)
-    print 'running...'
-    #rc.run_current_plan()
-
-    if not True:
-        #rc.close()
-
-        #sys.exit()
-        print 'current plan at start', rc._current_plan_file(), '\n'
-        plan = plans[0]
-        print 'setting plan to',plan
-        rc.set_plan(plan)
-        
-        result, message = rc.is_output_current(plan, show=True)
-        print 'is output current?', result
-        
-        print '\nrunning current plan...'
-        print rc.run_current_plan()
-        result, message = rc.is_output_current(plan, show=True)
-        print 'Ran. is output current?', result
-        
-        plan = plans[1]
-        print '\nsetting plan to',plan
-        rc.set_plan(plan)
-        
-        print 'current plan after set_plan()', rc._current_plan_file()
-        result, message = rc.is_output_current(plan, show=True)
-        print 'is output current?', result
-        
-        print '\nrunning current plan...'
-        print rc.run_current_plan()
-        result, message = rc.is_output_current(plan, show=True)
-        print 'Ran. is output current?', result
-        rc.close()
-        sys.exit()
-
-        otherterm = rc.get_profiles()
-        print 'profiles in current plan', otherterm
-        print
-        """
-        the call to rc.get_profiles() seems to be locking the plan in place. But is it? next step is to check if I can get WSELs
-        or similar even after the get_profiles() for right profiles after swapping plans. or bail and just stop the damn
-        user from changing the profile =P
-        """
-        plans = rc.get_plans()
-        print '***************Plans', plans
-        print 'current plan before set_plan()', rc._current_plan_file()
-        plan = plans[0]
-        print plan
-        rc.set_plan(plan)
-
-        print 'current plan after set_plan()', rc._current_plan_file()
-        result, message = rc.is_output_current(plan, show=True)
-        print result
-        profs = rc.get_profiles()
-        print profs
-        sys.exit()  # ------------------------------------------------------------------------
-        
-    
-    print rc._current_plan_file()
-    #rc.show()
-    #print rc.run_current_plan()
-    print 'done'
-    # print rc.run_current_plan()
-    river_id = 2
-    reach_id = 1
-    profile_id = 1
-    node_ids, node_types = rc._nodes(river_id, reach_id)
-    # print node_ids, node_types
-    if not True:
-        for x, y in zip(node_ids, node_types):
-            # Get numeric node code
-            temp = rc.com_rc.Geometry_GetNode(river_id, reach_id, x)
-            print temp
-            node_id = temp[0]
-            # 0 below is for BR up/down, 2 is code for wsel
-            wsel1 = rc.com_rc.Output_NodeOutput(river_id, reach_id, node_id, 0, profile_id, 2)[0]
-            #wsel2 = rc.com_rc.Output_NodeOutput(river_id, reach_id, node_id, 0, 2, 2)[0]
-            print x,'/', y,'/', node_id,'/', wsel1
-            #kkprint x,'/', y,'/', node_id,'/', wsel1, wsel2, wsel1-wsel2
-            #sys.exit()
-
-
-    profs = rc.get_profiles()
-    print profs
-    with open('out.txt', 'wt') as outfile:
-        rivers = rc.get_rivers()
-        for riv in rivers:
-            for reach in riv.reaches:
-                print riv
-                print reach
-                for node in reach.nodes:
-                    if node.node_type == '':
-                        #print node, node.value(profs[0], MIN_CH_EL)
-                        min_el = node.value(profs[0], MIN_CH_EL)
-                        outfile.write(','.join([str(riv), str(reach), str(node), str(min_el)]))
-                        for prof in profs:
-                            outfile.write(','+str(node.value(prof, WSEL)))
-                        outfile.write('\n')
-    rc.close()
+# def main_old():
+#     rc = RasController(version='503')
+#     #rc = RasController(version='41')
+#     # rc.open_project('x:/python/rascontrol/rascontrol/models/HG.prj')
+#     # rc.open_project("c:/Users/mike.bannister/Downloads/ras5/HEC-RAS_5.0_Beta_2015-08-21/RAS_50 Test Data/BaldEagleCrkMulti2D/BaldEagleDamBrk.prj")
+#     rc.open_project("x:/python/rascontrol/rascontrol/models/GHC.prj")
+#
+#     plans = rc.get_plans()
+#     print('***************Plans', plans ) # returns plan names
+#     fname, name = rc.com_rc.Plan_GetFilename(plans[0].name)
+#     print(fname, name)
+#     x = rc.com_rc.Plan_GetFilename(plans[1].name)
+#     print(x)
+#     # rc.show()
+#     time.sleep(2)
+#     print('running...')
+#     #rc.run_current_plan()
+#
+#     if not True:
+#         #rc.close()
+#
+#         #sys.exit()
+#         print('current plan at start', rc._current_plan_file(), '\n')
+#         plan = plans[0]
+#         print('setting plan to',plan)
+#         rc.set_plan(plan)
+#
+#         result, message = rc.is_output_current(plan, show=True)
+#         print('is output current?', result)
+#
+#         print('\nrunning current plan...')
+#         print(rc.run_current_plan())
+#         result, message = rc.is_output_current(plan, show=True)
+#         print 'Ran. is output current?', result
+#
+#         plan = plans[1]
+#         print('\nsetting plan to',plan)
+#         rc.set_plan(plan)
+#
+#         print('current plan after set_plan()', rc._current_plan_file())
+#         result, message = rc.is_output_current(plan, show=True)
+#         print('is output current?', result)
+#
+#         print('\nrunning current plan...')
+#         print rc.run_current_plan()
+#         result, message = rc.is_output_current(plan, show=True)
+#         print('Ran. is output current?', result)
+#         rc.close()
+#         sys.exit()
+#
+#         otherterm = rc.get_profiles()
+#         print('profiles in current plan', otherterm)
+#         print
+#         """
+#         the call to rc.get_profiles() seems to be locking the plan in place. But is it? next step is to check if I can get WSELs
+#         or similar even after the get_profiles() for right profiles after swapping plans. or bail and just stop the damn
+#         user from changing the profile =P
+#         """
+#         plans = rc.get_plans()
+#         print('***************Plans', plans)
+#         print('current plan before set_plan()', rc._current_plan_file())
+#         plan = plans[0]
+#         print(plan)
+#         rc.set_plan(plan)
+#
+#         print('current plan after set_plan()', rc._current_plan_file())
+#         result, message = rc.is_output_current(plan, show=True)
+#         print(result)
+#         profs = rc.get_profiles()
+#         print(profs)
+#         sys.exit()  # ------------------------------------------------------------------------
+#
+#
+#     print(rc._current_plan_file())
+#     #rc.show()
+#     #print rc.run_current_plan()
+#     print 'done'
+#     # print rc.run_current_plan()
+#     river_id = 2
+#     reach_id = 1
+#     profile_id = 1
+#     node_ids, node_types = rc._nodes(river_id, reach_id)
+#     # print node_ids, node_types
+#     if not True:
+#         for x, y in zip(node_ids, node_types):
+#             # Get numeric node code
+#             temp = rc.com_rc.Geometry_GetNode(river_id, reach_id, x)
+#             print(temp)
+#             node_id = temp[0]
+#             # 0 below is for BR up/down, 2 is code for wsel
+#             wsel1 = rc.com_rc.Output_NodeOutput(river_id, reach_id, node_id, 0, profile_id, 2)[0]
+#             #wsel2 = rc.com_rc.Output_NodeOutput(river_id, reach_id, node_id, 0, 2, 2)[0]
+#             print(x,'/', y,'/', node_id,'/', wsel1)
+#             #kkprint x,'/', y,'/', node_id,'/', wsel1, wsel2, wsel1-wsel2
+#             #sys.exit()
+#
+#
+#     profs = rc.get_profiles()
+#     print(profs)
+#     with open('out.txt', 'wt') as outfile:
+#         rivers = rc.get_rivers()
+#         for riv in rivers:
+#             for reach in riv.reaches:
+#                 print(riv)
+#                 print(reach)
+#                 for node in reach.nodes:
+#                     if node.node_type == '':
+#                         #print node, node.value(profs[0], MIN_CH_EL)
+#                         min_el = node.value(profs[0], MIN_CH_EL)
+#                         outfile.write(','.join([str(riv), str(reach), str(node), str(min_el)]))
+#                         for prof in profs:
+#                             outfile.write(','+str(node.value(prof, WSEL)))
+#                         outfile.write('\n')
+#     rc.close()
 
 def main():
-    rc = RasController(version='503')
-    rc.open_project("x:/python/rascontrol/rascontrol/models/GHC.prj")
+    rc = RasController(version='505')
+    rc.open_project(r"c:/workspace/git_clones/rascontrol/rascontrol/models/GHC.prj")
 
     plans = rc.get_plans()
-    print '***************Plans', plans  # returns plan names
+    print('***************Plans', plans)  # returns plan names)
     fname, name = rc.com_rc.Plan_GetFilename(plans[0].name)
-    print 'fname, name', fname, name
-    
-    print 'current plan file', rc._current_plan_file()
-    
+    print('fname, name', fname, name)
+
+    print('current plan file', rc._current_plan_file())
+
     profs = rc.get_profiles()
-    print profs
-    print rc.get_xs(300138)
-    
+    print(profs)
+    print(rc.get_xs(300138))
+
     #import pdb; pdb.set_trace()
 
     x= rc.simple_xs_list()
     for y in x:
-        print y
+        print(y)
 
     if not True:
         with open('out.txt', 'wt') as outfile:
             rivers = rc.get_rivers()
             for riv in rivers:
                 for reach in riv.reaches:
-                    print 'river/reach', riv, reach
+                    print('river/reach', riv, reach)
                     for node in reach.nodes:
                         if node.node_type == '':
                             #print node, node.value(profs[0], MIN_CH_EL)
