@@ -213,6 +213,7 @@ class RasController(object):
             '41' - 4.1
             '501' - 5.0.1
             '503' - 5.0.3
+            '505' - 5.0.5
         """
         self.version = version
         self.xs_list = None  # list of cross sections (Nodes)

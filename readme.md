@@ -5,9 +5,10 @@ This repo was originally forked from [Mike Bannis](https://github.com/mikebannis
 This repository is a work in progress. The overall goal is to develop a toolbox to assist a modeler with the calibration and verification of models built in HEC-RAS.  
 
 ##### My Development environment
-conda 4.4.10
-python 3.5
-Windows 10
+
+- conda 4.4.10
+- python 3.5
+- Windows 10
 
 ##### Setup
 Here are some packages I think Ill need in myu virtual environment
