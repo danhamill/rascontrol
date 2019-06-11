@@ -22,6 +22,10 @@ STA_WS_LFT = 36
 STA_WS_RGT = 37
 FROUDE_CHL = 48  # Froude number for channel
 FROUDE_XS = 49  # Froude number for entire XS
+HDYR_RADIUS = 208
+MAX_CH_EL = 4
+Q_CHAN = 7
+
 
 # Stations for below codes should probably be pulled from geometry, not from the RAS controller
 RIGHT_STA = 264  # right station of a XS
@@ -481,6 +485,73 @@ class RasController(object):
         return node_ids, node_types
 
 
+
+
+def main():
+    rc = RasController(version='506')
+    rc.open_project(r"C:\Users\RDCRLDDH\Desktop\PNWORHJ8\PNWORHJ8.prj")
+
+    plans = rc.get_plans()
+    print('***************Plans', plans)  # returns plan names)
+    fname, name = rc.com_rc.Plan_GetFilename(plans[0].name)
+    print('fname, name', fname, name)
+
+    print('current plan file', rc._current_plan_file())
+
+    profs = rc.get_profiles()
+    
+    
+    print(profs)
+    print(rc.get_xs(300138))
+
+    #import pdb; pdb.set_trace()
+
+    x= rc.simple_xs_list()
+    for y in x:
+        print(y)
+
+    prof_list = [str(i).split('"')[1] for i in profs] 
+
+    
+    import pandas as pd
+    
+    df = pd.DataFrame(columns = ['profile','node','Hydraulic_Radius','Q','max_wse','min_chan_el'])
+    
+    
+
+    rivers = rc.get_rivers()
+    for riv in rivers:
+        for reach in riv.reaches:
+            print('river/reach', riv, reach)
+            for node in reach.nodes:
+                if node.node_type == '':
+                    for idx in range(len(profs)):
+                        prof = profs[idx]
+                        prof_name = prof_list[idx]
+                        hydr_radius= node.value(prof, HDYR_RADIUS)
+                        max_wse= node.value(prof, MAX_CH_EL)  
+                        min_chan_el = node.value(prof, MIN_CH_EL)
+                        q = node.value(prof, Q_CHAN)
+                        df = df.append({'profile':prof_name,'node':node.node_id,'Hydraulic_Radius':hydr_radius,
+                                        'Q':q,'max_wse':max_wse,'min_chan_el':min_chan_el},ignore_index=True)
+                        
+                     
+                        
+
+                            
+                            
+                            
+                            
+    rc.close()
+
+if __name__ == '__main__':
+    main()
+
+'''
+HDYR_RADIUS = 208
+MAX_CH_d = 4
+Q_CHAN = 7
+'''
 # def main_old():
 #     rc = RasController(version='503')
 #     #rc = RasController(version='41')
@@ -595,43 +666,3 @@ class RasController(object):
 #                             outfile.write(','+str(node.value(prof, WSEL)))
 #                         outfile.write('\n')
 #     rc.close()
-
-def main():
-    rc = RasController(version='505')
-    rc.open_project(r"c:/workspace/git_clones/rascontrol/rascontrol/models/GHC.prj")
-
-    plans = rc.get_plans()
-    print('***************Plans', plans)  # returns plan names)
-    fname, name = rc.com_rc.Plan_GetFilename(plans[0].name)
-    print('fname, name', fname, name)
-
-    print('current plan file', rc._current_plan_file())
-
-    profs = rc.get_profiles()
-    print(profs)
-    print(rc.get_xs(300138))
-
-    #import pdb; pdb.set_trace()
-
-    x= rc.simple_xs_list()
-    for y in x:
-        print(y)
-
-    if not True:
-        with open('out.txt', 'wt') as outfile:
-            rivers = rc.get_rivers()
-            for riv in rivers:
-                for reach in riv.reaches:
-                    print('river/reach', riv, reach)
-                    for node in reach.nodes:
-                        if node.node_type == '':
-                            #print node, node.value(profs[0], MIN_CH_EL)
-                            min_el = node.value(profs[0], MIN_CH_EL)
-                            outfile.write(','.join([str(riv), str(reach), str(node), node.node_id, str(min_el)]))
-                            for prof in profs:
-                                outfile.write(','+str(node.value(prof, WSEL)))
-                            outfile.write('\n')
-    rc.close()
-
-if __name__ == '__main__':
-    main()
