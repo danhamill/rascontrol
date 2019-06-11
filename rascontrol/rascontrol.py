@@ -9,11 +9,17 @@ Mike Bannister 2018
 import win32com.client
 import psutil
 import sys
+import os
 import time
 from collections import namedtuple
 
 
 SimpleXS = namedtuple('SimpleXS', ['xs_id', 'river', 'reach'])
+SimpleCulvert = namedtuple('SimpleCulvert', ['culvert_id', 'river', 'reach'])
+SimpleBridge = namedtuple('SimpleBridge', ['bridge_id', 'river', 'reach'])
+SimpleMO = namedtuple('SimpleMO', ['mo_id', 'river', 'reach'])
+SimpleIS = namedtuple('SimpleIS', ['is_id', 'river', 'reach'])
+SimpleLS = namedtuple('SimpleLS', ['ls_id', 'river', 'reach'])
 
 # Codes for RAS output types, used in Node.value()
 WSEL = 2
@@ -22,10 +28,11 @@ STA_WS_LFT = 36
 STA_WS_RGT = 37
 FROUDE_CHL = 48  # Froude number for channel
 FROUDE_XS = 49  # Froude number for entire XS
-HDYR_RADIUS = 208
-MAX_CH_EL = 4
-Q_CHAN = 7
-
+Q_WEIR = 94
+Q_CULVERT_GROUP = 73
+Q_CULVERT_TOT = 242
+WSUS = 75
+WSDS = 213
 
 # Stations for below codes should probably be pulled from geometry, not from the RAS controller
 RIGHT_STA = 264  # right station of a XS
@@ -34,6 +41,12 @@ CH_STA_L = 158  # left station of channel
 CH_STA_R = 159  # right station of channel
 
 DEBUG = False
+
+class NoOutputFile(Exception):
+    pass
+
+class FileNotFound(Exception):
+    pass
 
 class RCException(Exception):
     """ Base class for all rascontrol exceptions """
@@ -57,9 +70,27 @@ class NoProject(RCException):
 class LockedPlan(RCException):
     pass
 
+class CurrentPlanNotRun(RCException):
+    """Indicates that the current plan has not yet been run"""
+    pass
+
 class CrossSectionNotFound(RCException):
     pass
 
+class CulvertNotFound(RCException):
+    pass
+
+class BridgeNotFound(RCException):
+    pass
+
+class MultipleOpeningNotFound(RCException):
+    pass
+
+class InlineStructureNotFound(RCException):
+    pass
+
+class LateralStructureNotFound(RCException):
+    pass
 
 class Plan(object):
     """ Holds information for a plan """
@@ -95,6 +126,7 @@ class River(object):
         self.code = code  # River code, int - these start at 1, not 0
         self.rc = rc   # RasController object
         self.reaches = self._get_reaches()  # list of Reach objects
+        self._update_reach_codes()
 
     # TODO -  the reach code should probably be pulled from the rascontller, although i+1 seems to work
     def _get_reaches(self):
@@ -103,11 +135,29 @@ class River(object):
         :return: list of Reach objects
         """
         reaches = []
-        reach_names = self.rc.output_getreaches(self.code)
+        reach_names = self.rc.geometry_getreaches(self.code)
         for i, name in enumerate(reach_names):
             new_reach = Reach(name, i+1, self)
             reaches.append(new_reach)
         return reaches
+
+    def _update_reach_codes(self):
+        """
+        Sometimes the reach codes switch between the geometry and output files.
+        This switches the codes after assigning each reach their respective nodes
+        """
+
+        if self.rc.output_getreaches(self.code)==self.rc.geometry_getreaches(self.code):
+            pass
+        else:
+            new_reach_codes = {}
+            new_reach_names = self.rc.output_getreaches(self.code)
+            for code, reach in enumerate(new_reach_names):
+                new_reach_codes[reach] = code+1
+
+            for reach in self.reaches:
+                updated_code = new_reach_codes[reach.name]
+                reach.code = updated_code
 
     def __repr__(self):
         return 'River name = "'+self.name + '", River code = "' + str(self.code)+'"'
@@ -130,7 +180,7 @@ class Reach(object):
         reach_id = self.code
         river_id = self.river.code
         nodes = []
-        node_ids, node_types = self.rc.output_getnodes(river_id, reach_id)
+        node_ids, node_types = self.rc.geometry_getnodes(river_id, reach_id)
         for i, node_stuff in enumerate(zip(node_ids, node_types)):
             node_id, node_type = node_stuff
             new_node = Node(node_id, node_type, i+1, self)
@@ -183,21 +233,25 @@ class RasController(object):
         open_project(self, project): Opens project in RAS
            :param project: string - full path to RAS project file (*.prj)
 
-        get_xs(self, xs_id, river=None, reach=None): return cross section Node object
+        get_xs(self, xs_id, river = None, reach = None): return cross section Node object
+
+        get_culvert(self, culv_id, river = None, reach = None): return culvert Node object
 
 
     Other methods -
-        close(self): - Closes RAS, only works in RAS5
+        close(self): Closes RAS, only works in RAS 5.x.y
 
         get_current_plan(self): Returns current plan as Plan object
 
-        get_plans(self, basedir=None): Returns plans in current project as list of Plan objects
+        get_plans(self, basedir = None): Returns plans in current project as list of Plan objects
 
         get_profiles(self): Returns list of all profiles as Profile objects
 
         get_rivers(self): Returns list of all rivers as River objects
 
-        get_xs(self, xs_id, river=None, reach=None): return cross section Node object
+        simple_xs_list(self): returns list of SimpleXS objects
+
+        simple_culvert_list(self): returns list of SimpleCulvert objects
 
         is_output_current(self, plan, show=False): Returns True if output is up to date for plan (Plan object)
 
@@ -206,21 +260,27 @@ class RasController(object):
         set_plan(self, plan): Sets plan in RAS, plan is Plan object from get_plans()
             :param plan: Plan object
 
-        simple_xs_list(self): returns list of XS as SimpleXS objects
-
         show(self): Makes RAS window visible
     """
 
-    def __init__(self, version='41'):
+    def __init__(self, version='506'):
         """
         version selects the RAS version, options include
             '41' - 4.1
             '501' - 5.0.1
             '503' - 5.0.3
             '505' - 5.0.5
+            '506' - 5.0.6
         """
         self.version = version
-        self.xs_list = None  # list of cross sections (Nodes)
+
+        self.xs_list = None
+        self.culvert_list = None
+        self.bridge_list = None
+        self.mult_open_list = None
+        self.inline_struct_list = None
+        self.lateral_struct_list = None
+
         self.project_is_open = False  # has a project been opened? set by self.open_project()
 
         # See if RAS is open and abort if so
@@ -228,71 +288,225 @@ class RasController(object):
             for p in psutil.process_iter():
                 try:
                     if p.name() == 'ras.exe':
+                    # TODO: As of 4/1/2019, the line above should be the line below. 'ras.exe' is not currently working,
+                    # So this test completely fails.
+                    #if p.name() == 'ras.exe' or p.name() == 'Ras.exe':
                         raise RASOpen('HEC-RAS appears to be open. Please close HEC-RAS. Exiting.')
-                        #sys.exit('HEC-RAS appears to be open. Please close HEC-RAS. Exiting.')
                 except psutil.Error:
+                    # TODO: This should be handled better.
                     pass
 
         # RAS is not open yet, open it
         self.com_rc = win32com.client.DispatchEx('RAS' + version + '.HECRASController')
         self._plan_lock = False  # get_profiles() seems to lock the current plan in place. Not sure why
 
+        # flag to determine if the model has been run
+        self. _model_ran = False
+
     def simple_xs_list(self):
         """
-        Returns list of XS as SimpleXS objects, all names are strip()ed
-
+        Returns list of XS as SimpleXS objects
         This is primarily for interacting with parserasgeo
-        """
-        # Check for xs list, create if necessary
-        if self.xs_list is None:
-            if not self.project_is_open:
-                raise NoProject('Project must be opened before calling RasController.get_xs()')
-            self.xs_list = self._load_xs_list()
 
-        simple_list = []
-        for xs in self.xs_list:
-            temp = SimpleXS(xs_id=xs.node_id.strip(), river=xs.river.name.strip(), reach=xs.reach.name.strip())
-            simple_list.append(temp)
+        :return: list of XS as SimpleXS objects, all names are strip()ed
+        """
+        simple_list = self._simple_node_list('xs')
         return simple_list
 
-
-    def get_xs(self, xs_id, river=None, reach=None):
+    def get_xs(self, xs_id, river = None, reach = None):
         """
-        Returns XS requested, ignores river and reach if not specified
-        Raises CrossSectionNotFound if XS is not in model
+        Returns requested cross section, ignores river and reach if not specified
+        Raises CrossSectionNotFound if cross section is not in model
 
-        :param xs_id: id of cross section (cast to string automatically)
+        :param xs_id: id of cross section node (cast to string automatically)
         :param river: river name (string)
         :param reach: reach name (string)
-        :return: Node object for cross section
+        :return: Node object for given cross section id
+        """
+        node = self._get_node('xs', xs_id, river, reach)
+        return node
+
+    def simple_culvert_list(self):
+        """
+        Returns list of culverts as SimpleCulvert objects
+        This is primarily for interacting with parserasgeo
+
+        :return: list of culverts as SimpleCulvert objects, all names are strip()ed
+        """
+        simple_list = self._simple_node_list('culvert')
+        return simple_list
+
+    def get_culvert(self, culvert_id, river = None, reach = None):
+        """
+        Returns requested culvert, ignores river and reach if not specified
+        Raises CulvertNotFound if culvert is not in model
+
+        :param culvert_id: id of station (cast to string automatically)
+        :param river: river name (string)
+        :param reach: reach name (string)
+        :return: Node object for given culvert id
+        """
+        node = self._get_node('culvert', culvert_id, river, reach)
+        return node
+
+    # - - - - - - - - - - - - -
+    # semi-private methods for get_<node> and simple_<node>_list
+    # - - - - - - - - - - - - -
+
+    def _simple_node_list(self, node_type):
+        """
+        Returns list of station as Simple<node> objects
+        <node> can be a cross section, bridge, culvert, multiple opening, inline structure, or lateral structure
+        all names are strip()ed
+
+        This is primarily for interacting with parserasgeo
+
+        :param node_type: the type of node whose list should be pulled. Possible options are 'xs', 'culvert', 'bridge', 'mult_open', 'inline_struct', and 'lateral_struct'
+        :return: a list of all Simple<node>s of node_type in the model (i.e. SimpleXS, SimpleCulvert, SimpleBridge, SimpleMO, SimpleIS, SimpleLS)
+        """
+        if not self.project_is_open:
+            raise NoProject('Project must be opened before calling RasController._simple_node_list()')
+
+        # populate self.node_list if it is None
+        # use self.node_list to create the simple_list
+        simple_list = []
+        if node_type == 'xs':
+            if self.xs_list is None:
+                self.xs_list = self._load_node_list(node_type)
+            for node in self.xs_list:
+                temp = SimpleXS(xs_id=node.node_id.strip(), river=node.river.name.strip(), reach=node.reach.name.strip())
+                simple_list.append(temp)
+        elif node_type == 'culvert':
+            if self.culvert_list is None:
+                self.culvert_list = self._load_node_list(node_type)
+            for node in self.culvert_list:
+                temp = SimpleCulvert(culvert_id=node.node_id.strip(), river=node.river.name.strip(), reach=node.reach.name.strip())
+                simple_list.append(temp)
+        elif node_type == 'bridge':
+            if self.bridge_list is None:
+                self.bridge_list = self._load_node_list(node_type)
+            for node in self.bridge_list:
+                temp = SimpleBridge(bridge_id=node.node_id.strip(), river=node.river.name.strip(), reach=node.reach.name.strip())
+                simple_list.append(temp)
+        elif node_type == 'mult_open':
+            if self.mult_open_list is None:
+                self.mult_open_list = self._load_node_list(node_type)
+            for node in self.mult_open_list:
+                temp = SimpleMO(mo_id=node.node_id.strip(), river=node.river.name.strip(), reach=node.reach.name.strip())
+                simple_list.append(temp)
+        elif node_type == 'inline_struct':
+            if self.inline_struct_list is None:
+                self.inline_struct_list = self._load_node_list(node_type)
+            for node in self.inline_struct_list:
+                temp = SimpleIS(is_id=node.node_id.strip(), river=node.river.name.strip(), reach=node.reach.name.strip())
+                simple_list.append(temp)
+        elif node_type == 'lateral_struct':
+            if self.lateral_struct_list is None:
+                self.lateral_struct_list = self._load_node_list(node_type)
+            for node in self.lateral_struct_list:
+                temp = SimpleLS(ls_id=node.node_id.strip(), river=node.river.name.strip(), reach=node.reach.name.strip())
+                simple_list.append(temp)
+        return tuple(simple_list)
+
+    def _get_node(self, node_type, node_id, river=None, reach=None):
+        """
+        Returns requested node, ignores river and reach if not specified
+        Raises <node>NotFound if station is not in model where <node> depends on node_type
+
+        :param node_type:
+        :param node_id: id of station (cast to string automatically)
+        :param river: river name (string)
+        :param reach: reach name (string)
+        :return: Node object for given node id
+        :raise: <node>NotFound if node is not in the model (<node> depends on the node type)
         """
         # Either river and reach is specified or not, no half way allowed
         if river is None and reach is not None or river is not None and reach is None:
             raise RCException('Both river and reach must be specified or not specified')
 
         # strip white space
-        xs_id = str(xs_id).strip()
+        node_id = str(node_id).strip()
         if river is not None:
             river = river.strip()
             reach = reach.strip()
 
-        # Check for xs list, create if necessary
-        if self.xs_list is None:
-            if not self.project_is_open:
-                raise NoProject('Project must be opened before calling RasController.get_xs()')
-            self.xs_list = self._load_xs_list()
+        # Check for node list, create if necessary for appropriate node_type
+        if node_type == 'xs':
+            if self.xs_list is None:
+                self.xs_list = self._load_node_list(node_type)
+            node_list = self.xs_list
+        elif node_type == 'culvert':
+            if self.culvert_list is None:
+                self.culvert_list = self._load_node_list(node_type)
+            node_list = self.culvert_list
+        elif node_type == 'bridge':
+            if self.bridge_list is None:
+                self.bridge_list = self._load_node_list(node_type)
+            node_list = self.bridge_list
+        elif node_type == 'mult_open':
+            if self.mult_open_list is None:
+                self.mult_open_list = self._load_node_list(node_type)
+            node_list = self.mult_open_list
+        elif node_type == 'inline_struct':
+            if self.inline_struct_list is None:
+                self.inline_struct_list = self._load_node_list(node_type)
+            node_list = self.inline_struct_list
+        elif node_type == 'lateral_struct':
+            if self.lateral_struct_list is None:
+                self.lateral_struct_list = self._load_node_list(node_type)
+            node_list = self.lateral_struct_list
 
-        # Search for XS
-        for xs in self.xs_list:
+        # Search for node
+        for node in node_list:
             if river is None and reach is None:
-                #print '*'+ str(xs.node_id)+'*'+str(xs_id)+'*'
-                if xs.node_id.strip() == xs_id:
-                    return xs
+                if node.node_id.strip() == node_id:
+                    return node
             else:
-                if xs.node_id.strip() == xs_id and xs.river.name.strip() == river and xs.reach.name.strip() == reach:
-                    return xs
-        raise CrossSectionNotFound('Cross section ' + str(xs_id) + ' not found')
+                if node.node_id.strip() == node_id and node.river.name.strip() == river and node.reach.name.strip() == reach:
+                    return node
 
+        if node_type == 'xs':
+            raise CrossSectionNotFound('Cross section ' + str(node_id) + ' not found')
+        elif node_type == 'culvert':
+            raise CulvertNotFound('Culvert ' + str(node_id) + ' not found')
+        elif node_type == 'bridge':
+            raise BridgeNotFound('Bridge ' + str(node_id) + ' not found')
+        elif node_type == 'mult_open':
+            raise MultipleOpeningNotFound('Multiple opening ' + str(node_id) + ' not found')
+        elif node_type == 'inline_struct':
+            raise InlineStructureNotFound('Inline structure ' + str(node_id) + ' not found')
+        elif node_type == 'lateral_struct':
+            raise LateralStructureNotFound('Lateral structure ' + str(node_id) + ' not found')
+
+    def _load_node_list(self, node_type):
+        """
+        Returns list of all nodes of node_type (Node objects)
+
+        :param node_type: type of node to list. Possible options are 'xs', 'culvert', 'bridge', 'mult_open', 'inline_struct', and 'lateral_struct'
+        :return: all nodes of node_type as Node objects
+        """
+        if node_type == 'xs':
+            node_type = ''
+        elif node_type == 'culvert':
+            node_type = 'Culv'
+        elif node_type == 'bridge':
+            node_type = 'BR'
+        elif node_type == 'mult_open':
+            node_type = 'MO'
+        elif node_type == 'inline_struct':
+            node_type = 'IS'
+        elif node_type == 'lateral_struct':
+            node_type = 'LS'
+
+        node_list = []
+        rivers = self.get_rivers()
+        for riv in rivers:
+            for reach in riv.reaches:
+                for node in reach.nodes:
+                    # blank node type indicates XS
+                    if node.node_type == node_type:
+                        node_list.append(node)
+        return tuple(node_list)
 
     def open_project(self, project):
         """
@@ -311,6 +525,8 @@ class RasController(object):
     def close(self):
         """
         closes RAS, this is only available in RAS5
+
+        ******** This function does not appear to work!
         """
         if int(self.version[0]) >= 5:
             self.com_rc.QuitRAS()
@@ -356,15 +572,45 @@ class RasController(object):
     def run_current_plan(self):
         """
         Run current plan in RAS
-        :return: status, messages - ??, ??
+        :return: status, messages
         """
         # RAS 5 appears to return and extra boolean, this should be tested more extensively
         if self.version[0] == 4:
             status, _, messages = self.com_rc.Compute_CurrentPlan(None, None)
         else:
             status, _, messages, _ = self.com_rc.Compute_CurrentPlan(None, None)
+        self._model_ran = True
         return status, messages
 
+    def hide_compute_window(self):
+        """ Hides computation windows """
+        self.com_rc.Compute_HideComputationWindow()
+
+    def read_compute_msg(self, plan):
+        """
+        Read the ComputeMsgs.txt file
+        This will enable the user to scan it for errors
+
+        e.g.
+        if "FLOW OPTIMIZATION FAILED TO CONVERGE, PROFILE    <n>" is in the file
+        then the user will that the flow was not optimized for profile n
+
+        :param plan: plan file used to run the current plan (.p**)
+        :return: computation messages as a list of string
+        """
+        compute_msg_file = '{}.computeMsgs.txt'.format(plan)
+
+        if self._model_ran is False:
+            raise CurrentPlanNotRun('Run the current plan before reading the compute message.')
+        if not os.path.isfile(compute_msg_file):
+            raise FileNotFound('{} does not exist. The model needs to run for this file to be created'.format(compute_msg_file))
+
+        return_strings = []
+        with open(compute_msg_file, 'r') as compute_msg:
+            for line in compute_msg:
+                temp = line.strip()
+                return_strings.append(temp)
+        return return_strings
 
     def get_profiles(self):
         """
@@ -411,22 +657,26 @@ class RasController(object):
             print('>>>', (result, unknown_bool, message))
         return result, message
 
-    def _load_xs_list(self):
-        """
-        Returns list of all cross sections (Node objects)
-        """
-        xs_list = []
-        rivers = self.get_rivers()
-        for riv in rivers:
-            for reach in riv.reaches:
-                for node in reach.nodes:
-                    # blank node type indicates XS
-                    if node.node_type == '':
-                        xs_list.append(node)
-        return xs_list
-
     # Methods below here are semi-private and are intended to be called from the River, Reach, and Node classes
-    def output_getnodes(self, river_id, reach_id):
+    def geometry_getreaches(self, river_num):
+        """
+        Returns reach names in river numbered river_num using Geometry_GetReaches
+        :param river_num: int
+        :return: list of reach names
+        """
+        _, _, reaches = self.com_rc.Geometry_GetReaches(river_num, None, None)
+        return reaches
+
+    def output_getreaches(self, river_num):
+        """
+        Returns reach names in river numbered river_num using Output_GetReaches
+        :param river_num: int
+        :return: list of reach names
+        """
+        _, _, reaches = self.com_rc.Output_GetReaches(river_num, None, None)
+        return reaches
+
+    def geometry_getnodes(self, river_id, reach_id):
         """
         Return node names (stationing) and node types
         Node types may belong to the following non inclusive list: '' (cross section), 'BR', 'Culv', 'IS', ...
@@ -434,15 +684,6 @@ class RasController(object):
         """
         _, _, _, node_ids, node_types = self.com_rc.Geometry_GetNodes(river_id, reach_id, None, None, None)
         return node_ids, node_types
-
-    def output_getreaches(self, river_num):
-        """
-        Returns reach names in river numbered river_num
-        :param river_num: int
-        :return: list of reach names
-        """
-        _, _, reaches = self.com_rc.Output_GetReaches(river_num, None, None)
-        return reaches
 
     def output_nodeoutput(self, river_id, reach_id, node_id, profile, value_type):
         """
@@ -457,6 +698,7 @@ class RasController(object):
         # TODO - the 0 in the next line should be a lot smarter
         value = self.com_rc.Output_NodeOutput(river_id, reach_id, node_id, 0, profile, value_type)[0]
         return value
+
 
     # TODO - remove once obsolete - change this to work with Plan objects
     def _current_plan_file(self):
@@ -473,6 +715,8 @@ class RasController(object):
         :return: list of strings
         """
         _, rivers = self.com_rc.Output_GetRivers(0, None)
+        if rivers is None:
+            raise NoOutputFile('Output file does not appear to exist. Model may not have run successfully.')
         return rivers
 
     # TODO - remove this, only in for testing
@@ -499,8 +743,8 @@ def main():
     print('current plan file', rc._current_plan_file())
 
     profs = rc.get_profiles()
-    
-    
+
+
     print(profs)
     print(rc.get_xs(300138))
 
@@ -510,14 +754,14 @@ def main():
     for y in x:
         print(y)
 
-    prof_list = [str(i).split('"')[1] for i in profs] 
+    prof_list = [str(i).split('"')[1] for i in profs]
 
-    
+
     import pandas as pd
-    
+
     df = pd.DataFrame(columns = ['profile','node','Hydraulic_Radius','Q','max_wse','min_chan_el'])
-    
-    
+
+
 
     rivers = rc.get_rivers()
     for riv in rivers:
@@ -529,19 +773,19 @@ def main():
                         prof = profs[idx]
                         prof_name = prof_list[idx]
                         hydr_radius= node.value(prof, HDYR_RADIUS)
-                        max_wse= node.value(prof, MAX_CH_EL)  
+                        max_wse= node.value(prof, MAX_CH_EL)
                         min_chan_el = node.value(prof, MIN_CH_EL)
                         q = node.value(prof, Q_CHAN)
                         df = df.append({'profile':prof_name,'node':node.node_id,'Hydraulic_Radius':hydr_radius,
                                         'Q':q,'max_wse':max_wse,'min_chan_el':min_chan_el},ignore_index=True)
-                        
-                     
-                        
 
-                            
-                            
-                            
-                            
+
+
+
+
+
+
+
     rc.close()
 
 if __name__ == '__main__':
