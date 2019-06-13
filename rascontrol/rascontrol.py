@@ -12,6 +12,7 @@ import sys
 import os
 import time
 from collections import namedtuple
+import warnings
 
 
 SimpleXS = namedtuple('SimpleXS', ['xs_id', 'river', 'reach'])
@@ -72,6 +73,10 @@ class LockedPlan(RCException):
 
 class CurrentPlanNotRun(RCException):
     """Indicates that the current plan has not yet been run"""
+    pass
+
+class ForseClose(RCException):
+    """Indicates user is force closing RAS using oos.system("taskkill /im RAS.exe")"""
     pass
 
 class CrossSectionNotFound(RCException):
@@ -271,6 +276,7 @@ class RasController(object):
             '503' - 5.0.3
             '505' - 5.0.5
             '506' - 5.0.6
+            '507' - 5.0.7
         """
         self.version = version
 
@@ -533,6 +539,13 @@ class RasController(object):
         else:
             raise NotImplementedError('close() is only availble in RAS 5')
 
+    def force_close(self):
+        '''
+        force closing ras using os.system("taskkill /im RAS.exe")
+        '''
+        os.system("taskkill /im RAS.exe")
+        raise ForseClose('user abouted ras using os.system("taskkill /im RAS.exe")')
+
     def get_current_plan(self):
         """
         Returns name of current plan
@@ -757,37 +770,7 @@ def main():
     prof_list = [str(i).split('"')[1] for i in profs]
 
 
-    import pandas as pd
-
-    df = pd.DataFrame(columns = ['profile','node','Hydraulic_Radius','Q','max_wse','min_chan_el'])
-
-
-
-    rivers = rc.get_rivers()
-    for riv in rivers:
-        for reach in riv.reaches:
-            print('river/reach', riv, reach)
-            for node in reach.nodes:
-                if node.node_type == '':
-                    for idx in range(len(profs)):
-                        prof = profs[idx]
-                        prof_name = prof_list[idx]
-                        hydr_radius= node.value(prof, HDYR_RADIUS)
-                        max_wse= node.value(prof, MAX_CH_EL)
-                        min_chan_el = node.value(prof, MIN_CH_EL)
-                        q = node.value(prof, Q_CHAN)
-                        df = df.append({'profile':prof_name,'node':node.node_id,'Hydraulic_Radius':hydr_radius,
-                                        'Q':q,'max_wse':max_wse,'min_chan_el':min_chan_el},ignore_index=True)
-
-
-
-
-
-
-
-
-    rc.close()
-
+    
 if __name__ == '__main__':
     main()
 
