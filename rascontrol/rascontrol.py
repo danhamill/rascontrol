@@ -35,6 +35,11 @@ Q_CULVERT_TOT = 242
 WSUS = 75
 WSDS = 213
 
+MAX_CH_EL= 5
+Q_TOTAL = 9
+T_WIDTH = 62
+HDYR_RADIUS = 208
+
 # Stations for below codes should probably be pulled from geometry, not from the RAS controller
 RIGHT_STA = 264  # right station of a XS
 LEFT_STA = 263  # left station of a XS
@@ -286,7 +291,6 @@ class RasController(object):
         self.mult_open_list = None
         self.inline_struct_list = None
         self.lateral_struct_list = None
-
         self.project_is_open = False  # has a project been opened? set by self.open_project()
 
         # See if RAS is open and abort if so
@@ -553,6 +557,12 @@ class RasController(object):
         """
         pass
 
+    def get_current_geom(self):
+        """
+        Returns file path of current geometry file
+        """
+        return self.com_rc.CurrentGeomFile()
+
     # TODO - Add plan filename to plan objects
     def get_plans(self, basedir=None):
         """
@@ -770,7 +780,7 @@ def main():
     prof_list = [str(i).split('"')[1] for i in profs]
 
 
-    
+
 if __name__ == '__main__':
     main()
 
