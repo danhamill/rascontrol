@@ -25,6 +25,8 @@ SimpleLS = namedtuple('SimpleLS', ['ls_id', 'river', 'reach'])
 # Codes for RAS output types, used in Node.value()
 WSEL = 2
 MIN_CH_EL = 5
+AVG_VEL = 23
+AVG_CHAN_VEL = 25
 STA_WS_LFT = 36
 STA_WS_RGT = 37
 FROUDE_CHL = 48  # Froude number for channel
@@ -39,6 +41,8 @@ MAX_CH_EL= 5
 Q_TOTAL = 9
 T_WIDTH = 62
 HDYR_RADIUS = 208
+VEL_TOTAL = 23 # Average velocity of flow in the cross sections
+AREA_CHAN = 34 #Flow ares of the min channgel including ineffective flow
 
 # Stations for below codes should probably be pulled from geometry, not from the RAS controller
 RIGHT_STA = 264  # right station of a XS
@@ -273,7 +277,7 @@ class RasController(object):
         show(self): Makes RAS window visible
     """
 
-    def __init__(self, version='506'):
+    def __init__(self, version='507'):
         """
         version selects the RAS version, options include
             '41' - 4.1
@@ -525,7 +529,19 @@ class RasController(object):
         """
         self.com_rc.Project_Open(project)
         self.project_is_open = True
+    def close_project(self):
+        """
+        Closes project in RAS
+        """
+        self.com_rc.Project_Close()
+        self.project_is_open = False
+        self._plan_lock = False
 
+    def save_project(self):
+        """
+        Saves Current Project
+        """
+        self.com_rc.Project_Save()
     def show(self):
         """
         Makes RAS window visible
@@ -581,14 +597,18 @@ class RasController(object):
             plans.append(temp_plan)
         return plans
 
-    def set_plan(self, plan):
+    def set_plan(self, plan, project):
         """
         Sets current plan in RAS
         :param plan: Plan object of plan to use
+        :param project: Path to hec ras project file
         """
         # Check if get_profiles() has already been run
         if self._plan_lock:
             raise LockedPlan('The plan can not be changed after running get_profiles(). I don\'t know why')
+        self.save_project()
+        self.close_project()
+        self.open_project(project)
         self.com_rc.Plan_SetCurrent(plan.name)
         self.com_rc.PlanOutput_SetCurrent(plan.name)
 
