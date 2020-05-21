@@ -597,7 +597,7 @@ class RasController(object):
             plans.append(temp_plan)
         return plans
 
-    def set_plan(self, plan, project):
+    def set_plan(self, plan):
         """
         Sets current plan in RAS
         :param plan: Plan object of plan to use
@@ -606,9 +606,6 @@ class RasController(object):
         # Check if get_profiles() has already been run
         if self._plan_lock:
             raise LockedPlan('The plan can not be changed after running get_profiles(). I don\'t know why')
-        self.save_project()
-        self.close_project()
-        self.open_project(project)
         self.com_rc.Plan_SetCurrent(plan.name)
         self.com_rc.PlanOutput_SetCurrent(plan.name)
 
