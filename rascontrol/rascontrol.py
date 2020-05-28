@@ -37,7 +37,7 @@ Q_CULVERT_TOT = 242
 WSUS = 75
 WSDS = 213
 
-MAX_CH_EL= 5
+MAX_CH_DEPTH= 4
 Q_TOTAL = 9
 T_WIDTH = 62
 HDYR_RADIUS = 208
@@ -555,6 +555,7 @@ class RasController(object):
         ******** This function does not appear to work!
         """
         if int(self.version[0]) >= 5:
+            self.com_rc.Project_Save()
             self.com_rc.QuitRAS()
         else:
             raise NotImplementedError('close() is only availble in RAS 5')
@@ -571,6 +572,7 @@ class RasController(object):
         Returns name of current plan
         :return: string
         """
+        return self.com_rc.CurrentPlanFile()
         pass
 
     def get_current_geom(self):
