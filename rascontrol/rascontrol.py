@@ -555,7 +555,6 @@ class RasController(object):
         ******** This function does not appear to work!
         """
         if int(self.version[0]) >= 5:
-            self.com_rc.Project_Save()
             self.com_rc.QuitRAS()
         else:
             raise NotImplementedError('close() is only availble in RAS 5')
